@@ -1,0 +1,20 @@
+project_id = "your-gcp-project-id"
+region     = "us-central1"
+zone       = "us-central1-a"
+domain     = "brokengadgets.io"
+github_org = "brokengadgets"
+
+# Lock down to your IP(s) — 0.0.0.0/0 is insecure.
+admin_source_ranges = ["YOUR_IP/32"]
+
+# VPN IP of the existing Docker host (stays as-is, not moving to GCP).
+docker_host_ip = "10.99.0.2"
+
+# MIAB credentials — used only at apply/destroy time to manage DNS records.
+# Not written to tfstate (passed via local-exec environment, not triggers).
+miab_host     = "box.brokengadgets.io"
+miab_user     = "admin@brokengadgets.io"
+miab_password = "..."
+
+# Set to false to manage DNS records manually via the MIAB admin panel.
+manage_miab_dns = true

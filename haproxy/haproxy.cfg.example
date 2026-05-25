@@ -1,0 +1,127 @@
+# HAProxy configuration for haproxy-github-oauth
+# Requirements: HAProxy 2.6+ (for lua-prepend-path and http-request lua support)
+#
+# SETUP:
+#   1. Copy haproxy/lua/jwt_auth.lua to /etc/haproxy/lua/jwt_auth.lua
+#   2. Copy this file to /etc/haproxy/haproxy.cfg (edit all PLACEHOLDER values)
+#   3. Install cert: scripts/cert-sync.sh (see haproxy/README.md)
+#   4. Test: haproxy -c -f /etc/haproxy/haproxy.cfg
+#   5. Reload: systemctl reload haproxy
+
+global
+    log /dev/log local0
+    log /dev/log local1 notice
+    maxconn 4096
+    user haproxy
+    group haproxy
+    daemon
+
+    # Load JWT validation Lua script
+    lua-prepend-path /etc/haproxy/lua/?.lua
+    lua-load /etc/haproxy/lua/jwt_auth.lua
+
+    # JWT secret must match JWT_SECRET env var in the OAuth app.
+    # HAProxy does not read env vars directly; set via setenv in systemd unit
+    # or use lua-load with a config file. See haproxy/README.md.
+    setenv JWT_SECRET "PLACEHOLDER_MUST_MATCH_OAUTH_APP_JWT_SECRET"
+
+defaults
+    log     global
+    mode    http
+    option  httplog
+    option  dontlognull
+    option  forwardfor
+    option  http-server-close
+    timeout connect  5s
+    timeout client   30s
+    timeout server   60s
+    errorfile 400 /etc/haproxy/errors/400.http
+    errorfile 403 /etc/haproxy/errors/403.http
+    errorfile 502 /etc/haproxy/errors/502.http
+    errorfile 503 /etc/haproxy/errors/503.http
+
+# ─── Frontend ──────────────────────────────────────────────────────────────────
+
+frontend https_in
+    bind *:443 ssl crt /etc/haproxy/certs/PLACEHOLDER_DOMAIN.pem alpn h2,http/1.1
+    bind *:80
+    http-request redirect scheme https unless { ssl_fc }
+
+    # Run JWT validation on every request.
+    # Sets txn.jwt_valid (bool) and txn.teams (comma-sep string) on success.
+    http-request lua.check_jwt
+
+    # Capture the request URI for use in the redirect URL.
+    http-request capture req.hdr(Host) len 64
+
+    # ACL: no valid JWT cookie → redirect to OAuth app login
+    acl has_jwt var(txn.jwt_valid) -m bool
+    http-request redirect location https://auth.PLACEHOLDER_DOMAIN/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt
+
+    # Route by SNI / Host header
+    use_backend be_oauth        if { hdr(host) -i auth.PLACEHOLDER_DOMAIN }
+    use_backend be_actual       if { hdr(host) -i actual.PLACEHOLDER_DOMAIN }
+    use_backend be_pihole       if { hdr(host) -i pihole.PLACEHOLDER_DOMAIN }
+    use_backend be_deluge       if { hdr(host) -i deluge.PLACEHOLDER_DOMAIN }
+    use_backend be_frigate      if { hdr(host) -i frigate.PLACEHOLDER_DOMAIN }
+    use_backend be_ollama       if { hdr(host) -i ollama.PLACEHOLDER_DOMAIN }
+    use_backend be_jellyfin     if { hdr(host) -i jellyfin.PLACEHOLDER_DOMAIN }
+    use_backend be_gitea        if { hdr(host) -i gitea.PLACEHOLDER_DOMAIN }
+    use_backend be_nextcloud    if { hdr(host) -i nextcloud.PLACEHOLDER_DOMAIN }
+    default_backend be_default
+
+# ─── OAuth App backend (runs locally on this host) ─────────────────────────────
+
+backend be_oauth
+    # No JWT check here — this is the auth app itself
+    server oauth_local 127.0.0.1:4180 check
+
+# ─── Gated backends (require specific GitHub Teams) ────────────────────────────
+# Docker host is reachable over OpenVPN at PLACEHOLDER_VPN_IP.
+
+backend be_actual
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/finance
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:5006 check
+
+backend be_pihole
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/admins
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:8080 check
+
+backend be_deluge
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/media
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:8112 check
+
+backend be_frigate
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/admins
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:5000 check
+
+backend be_ollama
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/developers
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:11434 check
+
+# ─── Backends with their own auth (team check still enforced at HAProxy level) ─
+
+backend be_jellyfin
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/media
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:8096 check
+
+backend be_gitea
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/developers
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:3000 check
+
+backend be_nextcloud
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/developers
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:8443 ssl verify none check
+
+# ─── Default ───────────────────────────────────────────────────────────────────
+
+backend be_default
+    http-request deny status 404

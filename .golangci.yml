@@ -1,0 +1,77 @@
+version: "2"
+
+linters:
+  default: none
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - bodyclose
+    - contextcheck
+    - dupl
+    - errname
+    - exhaustive
+    - forbidigo
+    - gochecknoinits
+    - gocritic
+    - gocyclo
+    - godot
+    - gosec
+    - misspell
+    - noctx
+    - nolintlint
+    - prealloc
+    - revive
+    - rowserrcheck
+    - sqlclosecheck
+    - unconvert
+    - unparam
+    - whitespace
+    - wrapcheck
+
+formatters:
+  enable:
+    - gofmt
+    - goimports
+
+linters-settings:
+  gocyclo:
+    min-complexity: 15
+  dupl:
+    threshold: 100
+  gocritic:
+    enabled-tags:
+      - diagnostic
+      - experimental
+      - opinionated
+      - performance
+      - style
+  gosec:
+    severity: medium
+    confidence: medium
+  revive:
+    rules:
+      - name: exported
+      - name: var-naming
+      - name: error-return
+      - name: error-strings
+      - name: error-naming
+      - name: unused-parameter
+  nolintlint:
+    allow-unused: false
+    require-explanation: true
+    require-specific: true
+  godot:
+    scope: declarations
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - path: "_test\\.go"
+      linters:
+        - dupl
+        - gosec
+        - wrapcheck

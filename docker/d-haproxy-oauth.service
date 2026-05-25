@@ -1,0 +1,22 @@
+[Unit]
+Description=haproxy-github-oauth Docker Compose service
+Documentation=https://github.com/yourusername/haproxy-github-oauth
+Requires=docker.service
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/haproxy-github-oauth
+ExecStartPre=-/usr/bin/docker compose -f docker/compose.yaml pull --quiet
+ExecStart=/usr/bin/docker compose -f docker/compose.yaml up -d --remove-orphans
+ExecStop=/usr/bin/docker compose -f docker/compose.yaml down
+ExecReload=/usr/bin/docker compose -f docker/compose.yaml up -d --remove-orphans
+TimeoutStartSec=120
+TimeoutStopSec=30
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

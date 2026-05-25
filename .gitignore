@@ -1,0 +1,22 @@
+bin/
+.env
+*.bak
+*.pem
+*.key
+*.crt
+*.p12
+*.ovpn
+vendor/
+
+# Claude Code
+.claude/
+CLAUDE.md
+AGENT_PROMPT.md
+
+# Terraform
+terraform/terraform.tfvars
+terraform/.terraform/
+terraform/.terraform.lock.hcl
+terraform/*.tfstate
+terraform/*.tfstate.backup
+terraform/*.tfplan
