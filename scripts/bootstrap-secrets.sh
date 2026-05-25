@@ -16,9 +16,6 @@ set -euo pipefail
 : "${GITHUB_CLIENT_ID:?GITHUB_CLIENT_ID is required}"
 : "${GITHUB_CLIENT_SECRET:?GITHUB_CLIENT_SECRET is required}"
 : "${JWT_SECRET:?JWT_SECRET is required}"
-: "${MIAB_HOST:?MIAB_HOST is required}"
-: "${MIAB_USER:?MIAB_USER is required}"
-: "${MIAB_PASSWORD:?MIAB_PASSWORD is required}"
 : "${OPENVPN_CONFIG_FILE:?OPENVPN_CONFIG_FILE is required (path to .ovpn file)}"
 
 if [ ! -f "$OPENVPN_CONFIG_FILE" ]; then
@@ -57,12 +54,9 @@ put_secret_file() {
 log "Pushing secrets to project: $PROJECT"
 echo ""
 
-put_secret_value "github-client-id"     "$GITHUB_CLIENT_ID"
-put_secret_value "github-client-secret" "$GITHUB_CLIENT_SECRET"
-put_secret_value "jwt-secret"           "$JWT_SECRET"
-put_secret_value "miab-host"            "$MIAB_HOST"
-put_secret_value "miab-user"            "$MIAB_USER"
-put_secret_value "miab-password"        "$MIAB_PASSWORD"
+put_secret_value "github-client-id"      "$GITHUB_CLIENT_ID"
+put_secret_value "github-client-secret"  "$GITHUB_CLIENT_SECRET"
+put_secret_value "jwt-secret"            "$JWT_SECRET"
 put_secret_file  "openvpn-client-config" "$OPENVPN_CONFIG_FILE"
 
 echo ""

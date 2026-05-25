@@ -17,9 +17,6 @@ locals {
     "github-client-id",
     "github-client-secret",
     "jwt-secret",
-    "miab-host",
-    "miab-user",
-    "miab-password",
     "openvpn-client-config",
   ]
 }

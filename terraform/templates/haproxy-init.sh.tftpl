@@ -27,9 +27,6 @@ get_secret() {
 GITHUB_CLIENT_ID=$(get_secret "github-client-id")
 GITHUB_CLIENT_SECRET=$(get_secret "github-client-secret")
 JWT_SECRET=$(get_secret "jwt-secret")
-MIAB_HOST=$(get_secret "miab-host")
-MIAB_USER=$(get_secret "miab-user")
-MIAB_PASSWORD=$(get_secret "miab-password")
 OPENVPN_CONFIG=$(get_secret "openvpn-client-config")
 
 log "Secrets loaded from Secret Manager"
@@ -41,6 +38,7 @@ apt-get update -qq
 apt-get install -y -qq \
     haproxy \
     openvpn \
+    certbot \
     curl \
     openssl \
     ca-certificates \
@@ -184,47 +182,70 @@ chmod 600 /etc/openvpn/client/brokengadgets.conf
 
 systemctl enable --now openvpn-client@brokengadgets
 
-# Wait up to 15 s for the tunnel to establish before continuing.
-for i in $(seq 1 15); do
-  ip link show tap0 >/dev/null 2>&1 && break
+# Wait up to 30 s for the VPN tunnel to establish.
+for i in $(seq 1 30); do
+  ip link show tun0 >/dev/null 2>&1 && break
   sleep 1
 done
-ip link show tap0 >/dev/null 2>&1 \
+ip link show tun0 >/dev/null 2>&1 \
   && log "VPN tunnel up" \
-  || log "WARN: VPN tunnel not detected after 15 s — cert sync and backends may fail"
+  || log "WARN: VPN tunnel not detected after 30 s — backends may fail"
 
-# ── Cert sync cron ────────────────────────────────────────────────────────────
+# ── TLS certificate via certbot ───────────────────────────────────────────────
+# The HAProxy subdomains point to this VM, so we get certs directly from
+# Let's Encrypt rather than pulling from MIAB.
 
-cat > /etc/cron.d/cert-sync <<CRONEOF
-MIAB_HOST=$MIAB_HOST
-MIAB_USER=$MIAB_USER
-MIAB_PASSWORD=$MIAB_PASSWORD
-DOMAIN=${domain}
-HAPROXY_CERT_DIR=/etc/haproxy/certs
-0 3 * * * root /opt/haproxy-github-oauth/scripts/cert-sync.sh >> /var/log/cert-sync.log 2>&1
-CRONEOF
-chmod 600 /etc/cron.d/cert-sync
+# Stop the default haproxy (started by apt) so certbot can bind port 80.
+systemctl stop haproxy || true
 
-# ── Initial cert sync ─────────────────────────────────────────────────────────
+log "Obtaining TLS certificate via certbot..."
+certbot certonly --standalone \
+  --non-interactive \
+  --agree-tos \
+  --email "admin@${domain}" \
+  -d "auth.${domain}" \
+  -d "gitea.${domain}" \
+  -d "nextcloud.${domain}" \
+  -d "jellyfin.${domain}" \
+  -d "movies.${domain}" \
+  -d "frigate.${domain}" \
+  && log "TLS cert obtained" \
+  || { log "ERROR: certbot failed — check DNS propagation and port 80 availability"; exit 1; }
 
-log "Running initial cert sync..."
-MIAB_HOST="$MIAB_HOST" \
-MIAB_USER="$MIAB_USER" \
-MIAB_PASSWORD="$MIAB_PASSWORD" \
-DOMAIN="${domain}" \
-HAPROXY_CERT_DIR=/etc/haproxy/certs \
-  /opt/haproxy-github-oauth/scripts/cert-sync.sh \
-  && log "Cert sync OK" \
-  || log "WARN: cert sync failed — HAProxy will not start. Run cert-sync.sh manually after configuring VPN."
+# Combine fullchain + key into the single PEM HAProxy expects.
+cat "/etc/letsencrypt/live/auth.${domain}/fullchain.pem" \
+    "/etc/letsencrypt/live/auth.${domain}/privkey.pem" \
+    > "/etc/haproxy/certs/${domain}.pem"
+chmod 600 "/etc/haproxy/certs/${domain}.pem"
+log "TLS cert installed"
+
+# Renewal hooks — certbot's built-in cron runs 'certbot renew' twice daily.
+# Pre-hook stops HAProxy so certbot can bind port 80; post-hook rebuilds the
+# combined PEM and restarts HAProxy.
+mkdir -p /etc/letsencrypt/renewal-hooks/pre
+mkdir -p /etc/letsencrypt/renewal-hooks/post
+
+cat > /etc/letsencrypt/renewal-hooks/pre/haproxy-stop.sh <<'HOOKEOF'
+#!/usr/bin/env bash
+systemctl stop haproxy
+HOOKEOF
+chmod +x /etc/letsencrypt/renewal-hooks/pre/haproxy-stop.sh
+
+cat > /etc/letsencrypt/renewal-hooks/post/haproxy-start.sh <<HOOKEOF
+#!/usr/bin/env bash
+set -euo pipefail
+cat /etc/letsencrypt/live/auth.${domain}/fullchain.pem \
+    /etc/letsencrypt/live/auth.${domain}/privkey.pem \
+    > /etc/haproxy/certs/${domain}.pem
+chmod 600 /etc/haproxy/certs/${domain}.pem
+systemctl start haproxy
+HOOKEOF
+chmod +x /etc/letsencrypt/renewal-hooks/post/haproxy-start.sh
 
 # ── Start HAProxy ─────────────────────────────────────────────────────────────
 
-if [ -f "/etc/haproxy/certs/${domain}.pem" ]; then
-  haproxy -c -f /etc/haproxy/haproxy.cfg \
-    && systemctl enable --now haproxy \
-    && log "HAProxy started"
-else
-  log "No cert found — start HAProxy manually after cert-sync.sh succeeds."
-fi
+haproxy -c -f /etc/haproxy/haproxy.cfg \
+  && systemctl enable --now haproxy \
+  && log "HAProxy started"
 
 log "haproxy-init complete"
