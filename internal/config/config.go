@@ -18,6 +18,7 @@ type Config struct {
 	BaseURL            string
 	CookieDomain       string
 	ListenAddr         string
+	MetricsAddr        string
 	SessionDuration    time.Duration
 	AllowedTeams       []string
 }
@@ -25,7 +26,8 @@ type Config struct {
 // Load reads configuration from environment variables and returns a validated Config.
 func Load() (*Config, error) {
 	cfg := &Config{
-		ListenAddr: getEnvDefault("LISTEN_ADDR", ":4180"),
+		ListenAddr:  getEnvDefault("LISTEN_ADDR", ":4180"),
+		MetricsAddr: getEnvDefault("METRICS_ADDR", "127.0.0.1:9090"),
 	}
 
 	var errs []string

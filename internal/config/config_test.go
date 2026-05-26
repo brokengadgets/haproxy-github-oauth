@@ -117,3 +117,21 @@ func TestLoad_CustomListenAddr(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, ":8080", cfg.ListenAddr)
 }
+
+func TestLoad_MetricsAddrDefault(t *testing.T) {
+	setEnv(t, validEnv())
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1:9090", cfg.MetricsAddr)
+}
+
+func TestLoad_CustomMetricsAddr(t *testing.T) {
+	env := validEnv()
+	env["METRICS_ADDR"] = "127.0.0.1:9091"
+	setEnv(t, env)
+
+	cfg, err := config.Load()
+	require.NoError(t, err)
+	assert.Equal(t, "127.0.0.1:9091", cfg.MetricsAddr)
+}

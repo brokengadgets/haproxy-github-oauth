@@ -31,8 +31,17 @@ func main() {
 
 	m := metrics.New()
 
+	metricsMux := http.NewServeMux()
+	metricsMux.Handle("GET /metrics", m.Handler())
+	metricsSrv := &http.Server{
+		Addr:         cfg.MetricsAddr,
+		Handler:      metricsMux,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 10 * time.Second,
+		IdleTimeout:  60 * time.Second,
+	}
+
 	mux := http.NewServeMux()
-	mux.Handle("GET /metrics", m.Handler())
 	mux.Handle("GET /healthz", m.Wrap("/healthz", handler.Health()))
 	// 10 req/s per IP, burst 20 — guards against brute-force OAuth initiation.
 	mux.Handle("GET /login", m.Wrap("/login", handler.RateLimit(handler.Login(authClient, cfg.JWTSecret), rate.Limit(10), 20)))
@@ -52,6 +61,13 @@ func main() {
 	defer stop()
 
 	go func() {
+		slog.Info("starting metrics server", "addr", cfg.MetricsAddr)
+		if err := metricsSrv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			slog.Error("metrics server error", "err", err)
+		}
+	}()
+
+	go func() {
 		slog.Info("starting server", "addr", cfg.ListenAddr)
 		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			slog.Error("server error", "err", err)
@@ -64,6 +80,9 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
+	if err := metricsSrv.Shutdown(shutdownCtx); err != nil {
+		slog.Error("metrics shutdown error", "err", err)
+	}
 	if err := srv.Shutdown(shutdownCtx); err != nil {
 		slog.Error("shutdown error", "err", err)
 	}
