@@ -56,7 +56,7 @@ frontend https_in
 
     # ACL: no valid JWT cookie → redirect to OAuth app login
     acl has_jwt var(txn.jwt_valid) -m bool
-    http-request redirect location https://auth.PLACEHOLDER_DOMAIN/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt
+    http-request redirect location https://auth.PLACEHOLDER_DOMAIN/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt !is_oauth_app
 
     # Route by SNI / Host header
     use_backend be_oauth            if { hdr(host) -i auth.PLACEHOLDER_DOMAIN }

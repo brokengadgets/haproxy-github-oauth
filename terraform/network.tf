@@ -32,7 +32,8 @@ resource "google_compute_firewall" "allow_ssh" {
     protocol = "tcp"
     ports    = ["22"]
   }
-  source_ranges = var.admin_source_ranges
+  # 35.235.240.0/20 is Google's IAP relay range — required for gcloud ssh --tunnel-through-iap
+  source_ranges = concat(var.admin_source_ranges, ["35.235.240.0/20"])
   target_tags   = ["haproxy"]
 }
 
