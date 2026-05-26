@@ -92,8 +92,23 @@ func validateRedirect(rd, baseURL string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("invalid base URL")
 	}
-	if parsed.Host != base.Host {
+	if !isSiblingHost(parsed.Hostname(), base.Hostname()) {
 		return "", fmt.Errorf("redirect host %q not allowed", parsed.Host)
 	}
 	return rd, nil
+}
+
+// isSiblingHost returns true if host is the same as baseHost or shares the
+// same parent domain (i.e. is a sibling subdomain). This allows the auth
+// service to redirect back to any service on the same domain after login while
+// still blocking open-redirect attacks to external hosts.
+func isSiblingHost(host, baseHost string) bool {
+	if host == baseHost {
+		return true
+	}
+	dot := strings.Index(baseHost, ".")
+	if dot < 0 {
+		return false
+	}
+	return strings.HasSuffix(host, baseHost[dot:])
 }

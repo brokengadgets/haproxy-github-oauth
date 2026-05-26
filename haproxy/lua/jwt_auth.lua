@@ -64,8 +64,8 @@ local function hmac_sha256_b64url(secret, data)
     and type(core.openssl.hmac) == "function"
     and type(core.b64enc) == "function"
   then
-    local ok, raw = pcall(core.openssl.hmac, secret, data, "SHA256")
-    if ok and raw then
+    local hmac_ok, raw = pcall(core.openssl.hmac, secret, data, "SHA256")
+    if hmac_ok and raw then
       local b64 = core.b64enc(raw)
       return (b64:gsub("=+$", ""):gsub("+", "-"):gsub("/", "_"))
     end
@@ -78,7 +78,7 @@ local function hmac_sha256_b64url(secret, data)
   )
   local h = io.popen(cmd)
   if not h then
-    if core then core.Alert("jwt_auth: io.popen unavailable and core.openssl.hmac missing — JWT validation disabled") end
+    if core then core.Alert("jwt_auth: io.popen unavailable and core.openssl.hmac missing") end
     return nil
   end
   local b64 = h:read("*a"):gsub("%s+$", "")

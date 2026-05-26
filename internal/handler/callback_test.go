@@ -153,12 +153,18 @@ func TestCallback_OpenRedirectPrevention(t *testing.T) {
 	authClient.SetTokenURL(ghSrv.URL + "/login/oauth/access_token")
 
 	tests := []struct {
-		name string
-		rd   string
+		name       string
+		rd         string
+		wantStatus int
+		wantLoc    string
 	}{
-		{"external host", "https://evil.com/steal"},
-		{"protocol-relative", "//evil.com/steal"},
-		{"no rd defaults to base", ""},
+		{"external host", "https://evil.com/steal", http.StatusBadRequest, ""},
+		{"protocol-relative", "//evil.com/steal", http.StatusBadRequest, ""},
+		{"suffix confusion", "https://evilexample.com/", http.StatusBadRequest, ""},
+		{"no rd defaults to base", "", http.StatusFound, callbackBaseURL + "/"},
+		{"same host", callbackBaseURL + "/dashboard", http.StatusFound, callbackBaseURL + "/dashboard"},
+		{"sibling subdomain", "https://gitea.example.com/dashboard", http.StatusFound, "https://gitea.example.com/dashboard"},
+		{"nested sibling subdomain", "https://sub.gitea.example.com/", http.StatusFound, "https://sub.gitea.example.com/"},
 	}
 
 	for _, tc := range tests {
@@ -173,11 +179,9 @@ func TestCallback_OpenRedirectPrevention(t *testing.T) {
 
 			handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
 
-			if tc.rd == "" {
-				assert.Equal(t, http.StatusFound, rr.Code)
-				assert.Equal(t, callbackBaseURL+"/", rr.Header().Get("Location"))
-			} else {
-				assert.Equal(t, http.StatusBadRequest, rr.Code)
+			assert.Equal(t, tc.wantStatus, rr.Code)
+			if tc.wantLoc != "" {
+				assert.Equal(t, tc.wantLoc, rr.Header().Get("Location"))
 			}
 		})
 	}
