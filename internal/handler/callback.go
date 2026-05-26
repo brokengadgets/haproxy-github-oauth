@@ -13,7 +13,7 @@ import (
 // Callback returns an http.Handler for GET /callback.
 // It validates the OAuth state, exchanges the code for a token, fetches team
 // memberships, issues a JWT session cookie, and redirects to the `rd` parameter.
-func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret string) http.Handler {
+func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret, cookieDomain string) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := validateState(r, cookieSecret); err != nil {
 			http.Error(w, "bad state: "+err.Error(), http.StatusBadRequest)
@@ -46,6 +46,7 @@ func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret s
 			Name:     "_auth",
 			Value:    tokenStr,
 			Path:     "/",
+			Domain:   cookieDomain,
 			HttpOnly: true,
 			Secure:   true,
 			SameSite: http.SameSiteLaxMode,

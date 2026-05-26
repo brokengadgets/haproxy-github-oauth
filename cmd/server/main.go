@@ -29,7 +29,7 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", handler.Health())
 	mux.Handle("GET /login", handler.Login(authClient, cfg.JWTSecret))
-	mux.Handle("GET /callback", handler.Callback(authClient, sessionStore, cfg.BaseURL, cfg.JWTSecret))
+	mux.Handle("GET /callback", handler.Callback(authClient, sessionStore, cfg.BaseURL, cfg.JWTSecret, cfg.CookieDomain))
 	mux.Handle("GET /auth/verify", handler.Verify(sessionStore))
 
 	srv := &http.Server{

@@ -102,7 +102,7 @@ func TestCallback_HappyPath(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: "oauth_rd", Value: callbackBaseURL + "/dashboard"}) //nolint:gosec // test-only request cookie
 	rr := httptest.NewRecorder()
 
-	handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
+	handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com").ServeHTTP(rr, req)
 
 	require.Equal(t, http.StatusFound, rr.Code)
 
@@ -116,6 +116,7 @@ func TestCallback_HappyPath(t *testing.T) {
 	require.NotNil(t, authCookie, "_auth cookie must be set")
 	assert.True(t, authCookie.HttpOnly)
 	assert.True(t, authCookie.Secure)
+	assert.Equal(t, "example.com", authCookie.Domain) // Go strips leading dot when parsing Set-Cookie
 
 	claims, err := store.Verify(authCookie.Value)
 	require.NoError(t, err)
@@ -138,7 +139,7 @@ func TestCallback_BadState(t *testing.T) {
 	req.AddCookie(testStateCookie("differentstate.badsig"))
 	rr := httptest.NewRecorder()
 
-	handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
+	handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com").ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
@@ -180,7 +181,7 @@ func TestCallback_OpenRedirectPrevention(t *testing.T) {
 			}
 			rr := httptest.NewRecorder()
 
-			handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
+			handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com").ServeHTTP(rr, req)
 
 			assert.Equal(t, tc.wantStatus, rr.Code)
 			if tc.wantLoc != "" {
