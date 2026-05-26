@@ -53,6 +53,40 @@ func TestLogin(t *testing.T) {
 		assert.Equal(t, http.SameSiteLaxMode, stateCookie.SameSite)
 	})
 
+	t.Run("preserves rd in oauth_rd cookie", func(t *testing.T) {
+		rd := "https://gitea.example.com/dashboard"
+		req := httptest.NewRequestWithContext(
+			context.Background(), http.MethodGet,
+			"/login?rd="+url.QueryEscape(rd), nil,
+		)
+		rr := httptest.NewRecorder()
+		handler.Login(client, "supersecretcookiesigningkey1234").ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusFound, rr.Code)
+
+		var rdCookie *http.Cookie
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == "oauth_rd" {
+				rdCookie = c
+				break
+			}
+		}
+		require.NotNil(t, rdCookie, "oauth_rd cookie must be set when rd param is given")
+		assert.Equal(t, rd, rdCookie.Value)
+		assert.True(t, rdCookie.HttpOnly)
+		assert.Equal(t, http.SameSiteLaxMode, rdCookie.SameSite)
+	})
+
+	t.Run("no oauth_rd cookie when rd is absent", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/login", nil)
+		rr := httptest.NewRecorder()
+		handler.Login(client, "supersecretcookiesigningkey1234").ServeHTTP(rr, req)
+
+		for _, c := range rr.Result().Cookies() {
+			assert.NotEqual(t, "oauth_rd", c.Name, "oauth_rd cookie must not be set when rd is absent")
+		}
+	})
+
 	t.Run("each request generates a unique state", func(t *testing.T) {
 		states := make(map[string]struct{})
 		for i := range 5 {

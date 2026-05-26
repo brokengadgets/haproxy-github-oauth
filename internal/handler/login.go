@@ -31,6 +31,18 @@ func Login(client *auth.Client, cookieSecret string) http.Handler {
 			MaxAge:   300,
 		})
 
+		if rd := r.URL.Query().Get("rd"); rd != "" {
+			http.SetCookie(w, &http.Cookie{
+				Name:     "oauth_rd",
+				Value:    rd,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   true,
+				SameSite: http.SameSiteLaxMode,
+				MaxAge:   300,
+			})
+		}
+
 		http.Redirect(w, r, client.AuthCodeURL(state), http.StatusFound)
 	})
 }

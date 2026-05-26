@@ -51,7 +51,11 @@ func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret s
 			SameSite: http.SameSiteLaxMode,
 		})
 
-		rd, err := validateRedirect(r.URL.Query().Get("rd"), baseURL)
+		rdVal := ""
+		if rdCookie, rdErr := r.Cookie("oauth_rd"); rdErr == nil {
+			rdVal = rdCookie.Value
+		}
+		rd, err := validateRedirect(rdVal, baseURL)
 		if err != nil {
 			http.Error(w, "invalid redirect: "+err.Error(), http.StatusBadRequest)
 			return

@@ -95,10 +95,11 @@ func TestCallback_HappyPath(t *testing.T) {
 	req := httptest.NewRequestWithContext(
 		context.Background(),
 		http.MethodGet,
-		"/callback?code=abc123&state="+state+"&rd="+url.QueryEscape(callbackBaseURL+"/dashboard"),
+		"/callback?code=abc123&state="+state,
 		nil,
 	)
 	req.AddCookie(testStateCookie(signedState))
+	req.AddCookie(&http.Cookie{Name: "oauth_rd", Value: callbackBaseURL + "/dashboard"}) //nolint:gosec // test-only request cookie
 	rr := httptest.NewRecorder()
 
 	handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
@@ -169,12 +170,14 @@ func TestCallback_OpenRedirectPrevention(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			target := "/callback?code=abc&state=" + state
-			if tc.rd != "" {
-				target += "&rd=" + url.QueryEscape(tc.rd)
-			}
-			req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, target, nil)
+			req := httptest.NewRequestWithContext(
+				context.Background(), http.MethodGet,
+				"/callback?code=abc&state="+state, nil,
+			)
 			req.AddCookie(testStateCookie(signedState))
+			if tc.rd != "" {
+				req.AddCookie(&http.Cookie{Name: "oauth_rd", Value: tc.rd}) //nolint:gosec // test-only request cookie
+			}
 			rr := httptest.NewRecorder()
 
 			handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec).ServeHTTP(rr, req)
