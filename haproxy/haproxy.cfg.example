@@ -59,15 +59,16 @@ frontend https_in
     http-request redirect location https://auth.PLACEHOLDER_DOMAIN/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt
 
     # Route by SNI / Host header
-    use_backend be_oauth        if { hdr(host) -i auth.PLACEHOLDER_DOMAIN }
-    use_backend be_actual       if { hdr(host) -i actual.PLACEHOLDER_DOMAIN }
-    use_backend be_pihole       if { hdr(host) -i pihole.PLACEHOLDER_DOMAIN }
-    use_backend be_deluge       if { hdr(host) -i deluge.PLACEHOLDER_DOMAIN }
-    use_backend be_frigate      if { hdr(host) -i frigate.PLACEHOLDER_DOMAIN }
-    use_backend be_ollama       if { hdr(host) -i ollama.PLACEHOLDER_DOMAIN }
-    use_backend be_jellyfin     if { hdr(host) -i jellyfin.PLACEHOLDER_DOMAIN }
-    use_backend be_gitea        if { hdr(host) -i gitea.PLACEHOLDER_DOMAIN }
-    use_backend be_nextcloud    if { hdr(host) -i nextcloud.PLACEHOLDER_DOMAIN }
+    use_backend be_oauth            if { hdr(host) -i auth.PLACEHOLDER_DOMAIN }
+    use_backend be_actual           if { hdr(host) -i actual.PLACEHOLDER_DOMAIN }
+    use_backend be_pihole           if { hdr(host) -i pihole.PLACEHOLDER_DOMAIN }
+    use_backend be_deluge           if { hdr(host) -i deluge.PLACEHOLDER_DOMAIN }
+    use_backend be_frigate          if { hdr(host) -i frigate.PLACEHOLDER_DOMAIN }
+    use_backend be_ollama           if { hdr(host) -i ollama.PLACEHOLDER_DOMAIN }
+    use_backend be_jellyfin         if { hdr(host) -i jellyfin.PLACEHOLDER_DOMAIN }
+    use_backend be_jellyfin_movies  if { hdr(host) -i movies.PLACEHOLDER_DOMAIN }
+    use_backend be_gitea            if { hdr(host) -i gitea.PLACEHOLDER_DOMAIN }
+    use_backend be_nextcloud        if { hdr(host) -i nextcloud.PLACEHOLDER_DOMAIN }
     default_backend be_default
 
 # ─── OAuth App backend (runs locally on this host) ─────────────────────────────
@@ -107,6 +108,11 @@ backend be_ollama
 # ─── Backends with their own auth (team check still enforced at HAProxy level) ─
 
 backend be_jellyfin
+    acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/media
+    http-request deny status 403 if !allowed
+    server dockerhost PLACEHOLDER_VPN_IP:8080 check
+
+backend be_jellyfin_movies
     acl allowed var(txn.teams) -m sub PLACEHOLDER_ORG/media
     http-request deny status 403 if !allowed
     server dockerhost PLACEHOLDER_VPN_IP:8096 check
