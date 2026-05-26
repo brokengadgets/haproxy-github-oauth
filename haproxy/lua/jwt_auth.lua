@@ -39,20 +39,18 @@ else
   end
 end
 
+local b64_decode  -- forward declaration; body assigned after b64_encode below
+
 -- base64url-decode a JWT segment to raw bytes.
 local function b64url_decode(s)
   s = s:gsub("%-", "+"):gsub("_", "/")
   local pad = 4 - (#s % 4)
   if pad ~= 4 then s = s .. string.rep("=", pad) end
-  if core and core.b64dec then
-    return core.b64dec(s)
+  if core and type(core.b64dec) == "function" then
+    local result = core.b64dec(s)
+    if result and result ~= "" then return result end
   end
-  -- Shell fallback for non-HAProxy environments (tests).
-  local h = io.popen(string.format("printf '%%s' '%s' | base64 -d 2>/dev/null", s))
-  if not h then return nil end
-  local result = h:read("*a")
-  h:close()
-  return result
+  return b64_decode(s)
 end
 
 -- base64-encode raw bytes (standard alphabet with padding).
@@ -69,6 +67,27 @@ local function b64_encode(s)
     r[#r+1] = (i+2 <= #s) and t:sub((n&63)+1, (n&63)+1) or "="
   end
   return table.concat(r)
+end
+
+-- base64-decode a standard-alphabet string to raw bytes (body of b64_decode above).
+b64_decode = function(s)
+  local alpha = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"
+  local m = {}
+  for i = 1, #alpha do m[alpha:sub(i,i)] = i - 1 end
+  s = s:gsub("[^A-Za-z0-9+/=]", "")
+  local out = {}
+  for i = 1, #s, 4 do
+    local p = s:sub(i, i+3)
+    local va = m[p:sub(1,1)] or 0
+    local vb = m[p:sub(2,2)] or 0
+    local c3 = p:sub(3,3)
+    local c4 = p:sub(4,4)
+    local n = (va << 18) | (vb << 12) | ((m[c3] or 0) << 6) | (m[c4] or 0)
+    out[#out+1] = string.char((n >> 16) & 0xFF)
+    if c3 ~= "=" and c3 ~= "" then out[#out+1] = string.char((n >> 8) & 0xFF) end
+    if c4 ~= "=" and c4 ~= "" then out[#out+1] = string.char(n & 0xFF) end
+  end
+  return table.concat(out)
 end
 
 -- Pure-Lua SHA-256 + HMAC-SHA256 (Lua 5.3+ bitwise operators, 32-bit mask).
