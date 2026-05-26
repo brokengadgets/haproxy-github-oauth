@@ -42,6 +42,17 @@ variable "docker_host_ip" {
   default     = "10.99.0.2"
 }
 
+variable "openvpn_server_ip" {
+  description = "Public IP of the OpenVPN server — used to scope the VPC firewall rules"
+  type        = string
+}
+
+variable "openvpn_port" {
+  description = "UDP port the OpenVPN server listens on"
+  type        = number
+  default     = 1194
+}
+
 # ── MIAB — only needed for DNS record management at apply time ────────────────
 # These DO go into tfstate (inside null_resource triggers).
 # They are not highly privileged — they only control DNS records, not mail data.

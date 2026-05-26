@@ -48,8 +48,8 @@ local function b64url_decode(s)
     return core.b64dec(s)
   end
   -- Shell fallback for non-HAProxy environments (tests).
-  -- JWT segments are base64 ASCII — safe in single-quoted shell argument.
   local h = io.popen(string.format("printf '%%s' '%s' | base64 -d 2>/dev/null", s))
+  if not h then return nil end
   local result = h:read("*a")
   h:close()
   return result
@@ -58,20 +58,32 @@ end
 -- Compute HMAC-SHA256(secret, data) and return as base64url (no padding).
 -- Signing input is base64url ASCII — safe in single-quoted shell arguments.
 local function hmac_sha256_b64url(secret, data)
-  if core and core.openssl and core.b64enc then
-    local raw = core.openssl.hmac(secret, data, "SHA256")
-    local b64 = core.b64enc(raw)
-    return (b64:gsub("=+$", ""):gsub("+", "-"):gsub("/", "_"))
+  -- HAProxy 2.6+ native path: avoids shell subprocess entirely.
+  if core
+    and type(core.openssl) == "table"
+    and type(core.openssl.hmac) == "function"
+    and type(core.b64enc) == "function"
+  then
+    local ok, raw = pcall(core.openssl.hmac, secret, data, "SHA256")
+    if ok and raw then
+      local b64 = core.b64enc(raw)
+      return (b64:gsub("=+$", ""):gsub("+", "-"):gsub("/", "_"))
+    end
+    if core then core.Warning("jwt_auth: core.openssl.hmac failed") end
   end
-  -- Shell fallback: binary HMAC output pipes directly into base64 — no
-  -- null-byte truncation because the pipe is binary-safe.
+  -- Shell fallback: io.popen may return nil in HAProxy's threaded Lua env.
   local cmd = string.format(
     "printf '%%s' '%s' | openssl dgst -sha256 -hmac '%s' -binary | base64 -w0 2>/dev/null",
     data, secret:gsub("'", "'\\''")
   )
   local h = io.popen(cmd)
+  if not h then
+    if core then core.Alert("jwt_auth: io.popen unavailable and core.openssl.hmac missing — JWT validation disabled") end
+    return nil
+  end
   local b64 = h:read("*a"):gsub("%s+$", "")
   h:close()
+  if b64 == "" then return nil end
   return (b64:gsub("=+$", ""):gsub("+", "-"):gsub("/", "_"))
 end
 

@@ -130,8 +130,7 @@ frontend https_in
     http-request lua.check_jwt
     acl has_jwt var(txn.jwt_valid) -m bool
     acl is_oauth_app hdr(host) -i auth.${domain}
-    http-request redirect location https://auth.${domain}/login?rd=https://%[req.hdr(Host)]%[path] \\
-        if !has_jwt !is_oauth_app
+    http-request redirect location https://auth.${domain}/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt !is_oauth_app
     use_backend be_oauth           if { hdr(host) -i auth.${domain} }
     use_backend be_gitea           if { hdr(host) -i gitea.${domain} }
     use_backend be_nextcloud       if { hdr(host) -i nextcloud.${domain} }
@@ -178,6 +177,9 @@ HCFG
 
 mkdir -p /etc/openvpn/client
 printf '%s' "$OPENVPN_CONFIG" > /etc/openvpn/client/brokengadgets.conf
+# Match the server's comp-lzo setting so incoming packets are decompressed
+# correctly; without this OpenVPN receives garbled frames and tun writes fail.
+printf '\ncomp-lzo\n' >> /etc/openvpn/client/brokengadgets.conf
 chmod 600 /etc/openvpn/client/brokengadgets.conf
 
 systemctl enable --now openvpn-client@brokengadgets

@@ -36,7 +36,9 @@ resource "google_compute_firewall" "allow_ssh" {
   target_tags   = ["haproxy"]
 }
 
-# UDP 1194 outbound for the OpenVPN tunnel to the existing VPN gateway.
+# UDP egress to the OpenVPN server on port 53.
+# An explicit egress rule is required so that GCP's stateful firewall tracks
+# the UDP flow and automatically permits the server's return packets as ingress.
 resource "google_compute_firewall" "allow_openvpn_out" {
   name      = "allow-openvpn-out"
   network   = google_compute_network.main.id
@@ -44,8 +46,22 @@ resource "google_compute_firewall" "allow_openvpn_out" {
 
   allow {
     protocol = "udp"
-    ports    = ["1194"]
+    ports    = [tostring(var.openvpn_port)]
   }
-  destination_ranges = ["0.0.0.0/0"]
+  destination_ranges = ["${var.openvpn_server_ip}/32"]
   target_tags        = ["haproxy"]
+}
+
+# Explicit ingress from the VPN server as a belt-and-suspenders complement to
+# the stateful tracking above — covers any edge cases where GCP drops the state.
+resource "google_compute_firewall" "allow_openvpn_in" {
+  name    = "allow-openvpn-in"
+  network = google_compute_network.main.id
+
+  allow {
+    protocol = "udp"
+    ports    = ["1-65535"]
+  }
+  source_ranges = ["${var.openvpn_server_ip}/32"]
+  target_tags   = ["haproxy"]
 }
