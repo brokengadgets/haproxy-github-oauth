@@ -60,7 +60,7 @@ func buildMux(baseURL, ghAPIBaseURL, ghTokenURL, secret string) http.Handler {
 	mux := http.NewServeMux()
 	mux.Handle("GET /healthz", handler.Health())
 	mux.Handle("GET /login", handler.Login(client, secret))
-	mux.Handle("GET /callback", handler.Callback(client, store, baseURL, secret))
+	mux.Handle("GET /callback", handler.Callback(client, store, baseURL, secret, ""))
 	mux.Handle("GET /auth/verify", handler.Verify(store))
 	return mux
 }
@@ -101,8 +101,9 @@ func TestIntegration_FullLoginFlow(t *testing.T) {
 
 	client := noRedirectClient()
 
-	// ── Step 1: GET /login ────────────────────────────────────────────────────
-	loginResp, err := client.Get(baseURL + "/login")
+	// ── Step 1: GET /login?rd=... (stores rd in oauth_rd cookie) ────────────────
+	rdTarget := baseURL + "/dashboard"
+	loginResp, err := client.Get(baseURL + "/login?rd=" + url.QueryEscape(rdTarget))
 	require.NoError(t, err)
 	loginResp.Body.Close()
 	require.Equal(t, http.StatusFound, loginResp.StatusCode)
@@ -115,7 +116,7 @@ func TestIntegration_FullLoginFlow(t *testing.T) {
 	state := locURL.Query().Get("state")
 	require.NotEmpty(t, state, "state must be present in redirect URL")
 
-	// The oauth_state cookie is stored in the jar.
+	// Both oauth_state and oauth_rd cookies are stored in the jar.
 	cookies := client.Jar.Cookies(mustParseURL(baseURL))
 	var oauthStateCookie *http.Cookie
 	for _, c := range cookies {
@@ -127,9 +128,8 @@ func TestIntegration_FullLoginFlow(t *testing.T) {
 	require.NotNil(t, oauthStateCookie, "oauth_state cookie must be set after /login")
 
 	// ── Step 2: GET /callback (simulating GitHub redirect back) ───────────────
-	rdTarget := baseURL + "/dashboard"
-	callbackURL := fmt.Sprintf("%s/callback?code=testcode&state=%s&rd=%s",
-		baseURL, state, url.QueryEscape(rdTarget))
+	// rd comes from the oauth_rd cookie in the jar, not the query string.
+	callbackURL := fmt.Sprintf("%s/callback?code=testcode&state=%s", baseURL, state)
 
 	cbResp, err := client.Get(callbackURL)
 	require.NoError(t, err)
@@ -236,15 +236,14 @@ func TestIntegration_TeamACLClaim(t *testing.T) {
 
 	client := noRedirectClient()
 
-	loginResp, err := client.Get(baseURL + "/login")
+	loginResp, err := client.Get(baseURL + "/login?rd=" + url.QueryEscape(baseURL+"/"))
 	require.NoError(t, err)
 	loginResp.Body.Close()
 
 	loc, _ := url.Parse(loginResp.Header.Get("Location"))
 	state := loc.Query().Get("state")
 
-	cbURL := fmt.Sprintf("%s/callback?code=testcode&state=%s&rd=%s",
-		baseURL, state, url.QueryEscape(baseURL+"/"))
+	cbURL := fmt.Sprintf("%s/callback?code=testcode&state=%s", baseURL, state)
 	cbResp, err := client.Get(cbURL)
 	require.NoError(t, err)
 	cbResp.Body.Close()

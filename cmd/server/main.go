@@ -10,9 +10,12 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"haproxy-github-oauth/internal/auth"
 	"haproxy-github-oauth/internal/config"
 	"haproxy-github-oauth/internal/handler"
+	"haproxy-github-oauth/internal/metrics"
 	"haproxy-github-oauth/internal/session"
 )
 
@@ -26,11 +29,16 @@ func main() {
 	authClient := auth.NewClient(cfg.GitHubClientID, cfg.GitHubClientSecret, cfg.BaseURL)
 	sessionStore := session.New(cfg.JWTSecret, cfg.SessionDuration)
 
+	m := metrics.New()
+
 	mux := http.NewServeMux()
-	mux.Handle("GET /healthz", handler.Health())
-	mux.Handle("GET /login", handler.Login(authClient, cfg.JWTSecret))
-	mux.Handle("GET /callback", handler.Callback(authClient, sessionStore, cfg.BaseURL, cfg.JWTSecret, cfg.CookieDomain))
-	mux.Handle("GET /auth/verify", handler.Verify(sessionStore))
+	mux.Handle("GET /metrics", m.Handler())
+	mux.Handle("GET /healthz", m.Wrap("/healthz", handler.Health()))
+	// 10 req/s per IP, burst 20 — guards against brute-force OAuth initiation.
+	mux.Handle("GET /login", m.Wrap("/login", handler.RateLimit(handler.Login(authClient, cfg.JWTSecret), rate.Limit(10), 20)))
+	mux.Handle("GET /callback", m.Wrap("/callback", handler.RateLimit(handler.Callback(authClient, sessionStore, cfg.BaseURL, cfg.JWTSecret, cfg.CookieDomain), rate.Limit(10), 20)))
+	mux.Handle("GET /logout", m.Wrap("/logout", handler.Logout(cfg.CookieDomain)))
+	mux.Handle("GET /auth/verify", m.Wrap("/auth/verify", handler.Verify(sessionStore)))
 
 	srv := &http.Server{
 		Addr:         cfg.ListenAddr,
