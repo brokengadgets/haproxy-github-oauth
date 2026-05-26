@@ -17,9 +17,13 @@ sudo cp haproxy/lua/jwt_auth.lua /etc/haproxy/lua/jwt_auth.lua
 
 ### 2. Install the HAProxy config
 
+`haproxy/haproxy.cfg` is not tracked in version control (it contains real IPs,
+hostnames, and org names). Use the example as your starting point:
+
 ```bash
-sudo cp haproxy/haproxy.cfg.example /etc/haproxy/haproxy.cfg
-# Edit all PLACEHOLDER_ values
+cp haproxy/haproxy.cfg.example haproxy/haproxy.cfg
+# Edit all PLACEHOLDER_ values, then deploy:
+sudo cp haproxy/haproxy.cfg /etc/haproxy/haproxy.cfg
 sudo nano /etc/haproxy/haproxy.cfg
 ```
 

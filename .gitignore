@@ -1,5 +1,6 @@
 bin/
 .env
+haproxy/haproxy.cfg
 *.bak
 *.pem
 *.key
