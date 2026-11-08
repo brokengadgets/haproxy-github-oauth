@@ -16,7 +16,9 @@ MOCK_PORT=18443
 MOCK_PID=""
 
 cleanup() {
-  [ -n "$MOCK_PID" ] && kill "$MOCK_PID" 2>/dev/null || true
+  if [ -n "$MOCK_PID" ]; then
+    kill "$MOCK_PID" 2>/dev/null || true
+  fi
   rm -rf "$TMPDIR_ROOT"
 }
 trap cleanup EXIT

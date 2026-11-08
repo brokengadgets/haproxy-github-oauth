@@ -45,7 +45,7 @@ if command -v docker >/dev/null 2>&1; then
   fi
   if [ -f /etc/docker/daemon.json ]; then
     log "/etc/docker/daemon.json:"
-    cat /etc/docker/daemon.json | sed 's/^/  /'
+    sed 's/^/  /' /etc/docker/daemon.json
     MTU_SET=$(python3 -c "import json; d=json.load(open('/etc/docker/daemon.json')); print(d.get('mtu','NOT SET'))" 2>/dev/null || echo "NOT SET")
     if [ "$MTU_SET" = "NOT SET" ] || [ "$MTU_SET" = "1500" ]; then
       warn "Docker daemon MTU is not set (defaults to 1500) — likely cause of VPN timeouts"
