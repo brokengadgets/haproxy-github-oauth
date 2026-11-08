@@ -41,7 +41,7 @@ This service (port 4180, localhost only)
 ## Installation
 
 ```bash
-git clone https://github.com/yourusername/haproxy-github-oauth
+git clone https://github.com/brokengadgets/haproxy-github-oauth.git
 cd haproxy-github-oauth
 make build
 # Binary is at ./bin/haproxy-github-oauth
