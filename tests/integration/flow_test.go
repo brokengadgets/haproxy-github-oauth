@@ -65,23 +65,27 @@ func buildMux(baseURL, ghAPIBaseURL, ghTokenURL, secret string) http.Handler {
 	return mux
 }
 
-// noRedirectClient returns an http.Client that captures cookies but does not
-// follow redirects, so tests can inspect redirect targets.
-func noRedirectClient() *http.Client {
+// noRedirectClient returns an http.Client that captures cookies, trusts the
+// test server's TLS certificate, and does not follow redirects.
+func noRedirectClient(srv *httptest.Server) *http.Client {
 	jar, _ := cookiejar.New(nil)
 	return &http.Client{
-		Jar: jar,
+		Jar:       jar,
+		Transport: srv.Client().Transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
 	}
 }
 
-// fullFlowClient returns an http.Client that follows redirects and keeps
-// cookies across requests — used for the verify step after the cookie is set.
-func fullFlowClient() *http.Client {
+// fullFlowClient returns an http.Client that follows redirects, trusts the
+// test server's TLS certificate, and keeps cookies across requests.
+func fullFlowClient(srv *httptest.Server) *http.Client {
 	jar, _ := cookiejar.New(nil)
-	return &http.Client{Jar: jar}
+	return &http.Client{
+		Jar:       jar,
+		Transport: srv.Client().Transport,
+	}
 }
 
 func TestIntegration_FullLoginFlow(t *testing.T) {
@@ -91,15 +95,15 @@ func TestIntegration_FullLoginFlow(t *testing.T) {
 	gh := startMockGitHub(t, "alice", teams)
 	defer gh.Close()
 
-	// Use an unstarted server so we can inject baseURL into the mux.
+	// Use a TLS server so Secure cookies are stored by net/http/cookiejar across Go versions.
 	appSrv := httptest.NewUnstartedServer(nil)
-	appSrv.Start()
+	appSrv.StartTLS()
 	defer appSrv.Close()
 	baseURL := appSrv.URL
 
 	appSrv.Config.Handler = buildMux(baseURL, gh.URL, gh.URL+"/login/oauth/access_token", integSecret)
 
-	client := noRedirectClient()
+	client := noRedirectClient(appSrv)
 
 	// ── Step 1: GET /login?rd=... (stores rd in oauth_rd cookie) ────────────────
 	rdTarget := baseURL + "/dashboard"
@@ -168,7 +172,7 @@ func TestIntegration_ExpiredJWTRejected(t *testing.T) {
 	defer gh.Close()
 
 	appSrv := httptest.NewUnstartedServer(nil)
-	appSrv.Start()
+	appSrv.StartTLS()
 	defer appSrv.Close()
 	baseURL := appSrv.URL
 	appSrv.Config.Handler = buildMux(baseURL, gh.URL, gh.URL+"/login/oauth/access_token", integSecret)
@@ -182,7 +186,7 @@ func TestIntegration_ExpiredJWTRejected(t *testing.T) {
 	require.NoError(t, err)
 	req.AddCookie(&http.Cookie{Name: "_auth", Value: expiredToken})
 
-	resp, err := fullFlowClient().Do(req)
+	resp, err := fullFlowClient(appSrv).Do(req)
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
@@ -193,7 +197,7 @@ func TestIntegration_TamperedJWTRejected(t *testing.T) {
 	defer gh.Close()
 
 	appSrv := httptest.NewUnstartedServer(nil)
-	appSrv.Start()
+	appSrv.StartTLS()
 	defer appSrv.Close()
 	baseURL := appSrv.URL
 	appSrv.Config.Handler = buildMux(baseURL, gh.URL, gh.URL+"/login/oauth/access_token", integSecret)
@@ -214,7 +218,7 @@ func TestIntegration_TamperedJWTRejected(t *testing.T) {
 	require.NoError(t, err)
 	req.AddCookie(&http.Cookie{Name: "_auth", Value: tamperedToken})
 
-	resp, err := fullFlowClient().Do(req)
+	resp, err := fullFlowClient(appSrv).Do(req)
 	require.NoError(t, err)
 	resp.Body.Close()
 	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
@@ -229,12 +233,12 @@ func TestIntegration_TeamACLClaim(t *testing.T) {
 	defer gh.Close()
 
 	appSrv := httptest.NewUnstartedServer(nil)
-	appSrv.Start()
+	appSrv.StartTLS()
 	defer appSrv.Close()
 	baseURL := appSrv.URL
 	appSrv.Config.Handler = buildMux(baseURL, gh.URL, gh.URL+"/login/oauth/access_token", integSecret)
 
-	client := noRedirectClient()
+	client := noRedirectClient(appSrv)
 
 	loginResp, err := client.Get(baseURL + "/login?rd=" + url.QueryEscape(baseURL+"/"))
 	require.NoError(t, err)
