@@ -1,0 +1,75 @@
+name: CI
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  zizmor:
+    name: Audit GitHub Actions workflows
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Run zizmor
+        uses: zizmorcore/zizmor-action@cc914d7f3750a2d13d75c7f184a1060aa0e9d482 # v0.6.4
+        with:
+          advanced-security: false
+
+  test:
+    name: Vet, test, and lint
+    needs: zizmor
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Set up Go
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run go vet
+        run: go vet ./...
+
+      - name: Run unit tests
+        run: go test -race -count=1 ./...
+
+      - name: Run integration tests
+        run: go test -race -count=1 -tags integration ./tests/integration/...
+
+      - name: Install Lua and shell check tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends lua5.4 luarocks liblua5.4-dev shellcheck
+          sudo luarocks --lua-version=5.4 install busted
+          sudo luarocks --lua-version=5.4 install luacheck
+
+      - name: Lint shell scripts and Lua
+        run: |
+          shellcheck scripts/*.sh
+          luacheck haproxy/lua/
+
+      - name: Run HAProxy Lua JWT tests
+        run: busted --pattern "_test" haproxy/lua/
