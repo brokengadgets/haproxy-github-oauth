@@ -19,10 +19,14 @@ HAProxy (port 443, TLS termination)
   └── JWT valid, team does not match → 403
 
 This service (port 4180, localhost only)
-  ├── GET /login        → redirect to GitHub OAuth
-  ├── GET /callback     → exchange code, fetch teams, issue JWT, redirect
+  ├── GET /login        → redirect to GitHub OAuth (rate-limited per IP)
+  ├── GET /callback     → exchange code, verify org/teams, issue JWT, redirect
+  ├── GET /logout       → clear _auth cookie and redirect to /
   ├── GET /auth/verify  → 200 (JSON claims) or 401 (for debugging)
   └── GET /healthz      → 200 {"status":"ok"}
+
+Metrics server (port 9090, 127.0.0.1 only)
+  └── GET /metrics      → Prometheus request counters & latency histograms
 ```
 
 ## Prerequisites
@@ -65,6 +69,7 @@ $EDITOR .env
 | `BASE_URL` | yes | — | Public URL of this service, e.g. `https://auth.example.com` |
 | `COOKIE_DOMAIN` | yes | — | Cookie domain, e.g. `.example.com` |
 | `LISTEN_ADDR` | no | `:4180` | Listen address |
+| `METRICS_ADDR` | no | `127.0.0.1:9090` | Listen address for Prometheus `/metrics` endpoint |
 | `SESSION_DURATION` | no | `8h` | JWT session lifetime |
 | `ALLOWED_TEAMS` | no | _(any org member)_ | Comma-separated `org/team-slug` allow list |
 
@@ -114,7 +119,8 @@ frontend https_in
     bind *:443 ssl crt /etc/haproxy/certs/combined.pem
     http-request lua.check_jwt
     acl has_jwt var(txn.jwt_valid) -m bool
-    http-request redirect location /login?rd=%[capture.req.hdr(0)] if !has_jwt
+    acl is_oauth_app hdr(host) -i auth.example.com
+    http-request redirect location https://auth.example.com/login?rd=https://%[req.hdr(Host)]%[path] if !has_jwt !is_oauth_app
 ```
 
 **4. Enforce team ACLs per backend:**

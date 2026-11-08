@@ -67,6 +67,9 @@ func makeGitHubMockServer(t *testing.T, teams []fakeGitHubTeam) *httptest.Server
 		case "/user/teams":
 			w.Header().Set("Content-Type", "application/json")
 			_ = json.NewEncoder(w).Encode(teams)
+		case "/user":
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = fmt.Fprint(w, `{"login":"octocat"}`)
 		default:
 			http.NotFound(w, r)
 		}
@@ -120,7 +123,72 @@ func TestCallback_HappyPath(t *testing.T) {
 
 	claims, err := store.Verify(authCookie.Value)
 	require.NoError(t, err)
+	assert.Equal(t, "octocat", claims.Subject)
 	assert.Equal(t, []string{"myorg/admins"}, claims.Teams)
+}
+
+func TestCallback_OrgAndTeamEnforcement(t *testing.T) {
+	teams := []fakeGitHubTeam{
+		{Slug: "admins", Organization: fakeGitHubOrg{Login: "myorg"}},
+		{Slug: "guests", Organization: fakeGitHubOrg{Login: "otherorg"}},
+	}
+	ghSrv := makeGitHubMockServer(t, teams)
+	defer ghSrv.Close()
+
+	state, signedState := makeCallbackState(t)
+	store := session.New(callbackSecret, 8*time.Hour)
+	authClient := auth.NewClientWithBaseURL("client-id", "client-secret", callbackBaseURL, ghSrv.URL)
+	authClient.SetTokenURL(ghSrv.URL + "/login/oauth/access_token")
+
+	t.Run("filters teams to required org and allows matching member", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/callback?code=abc&state="+state, nil)
+		req.AddCookie(testStateCookie(signedState))
+		rr := httptest.NewRecorder()
+
+		h := handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com",
+			handler.WithOrg("myorg"),
+			handler.WithAllowedTeams([]string{"myorg/admins"}),
+		)
+		h.ServeHTTP(rr, req)
+
+		require.Equal(t, http.StatusFound, rr.Code)
+		var authCookie *http.Cookie
+		for _, c := range rr.Result().Cookies() {
+			if c.Name == "_auth" {
+				authCookie = c
+				break
+			}
+		}
+		require.NotNil(t, authCookie)
+		claims, err := store.Verify(authCookie.Value)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"myorg/admins"}, claims.Teams)
+	})
+
+	t.Run("rejects user not in required org", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/callback?code=abc&state="+state, nil)
+		req.AddCookie(testStateCookie(signedState))
+		rr := httptest.NewRecorder()
+
+		h := handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com",
+			handler.WithOrg("missingorg"),
+		)
+		h.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("rejects user not in allowed teams", func(t *testing.T) {
+		req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/callback?code=abc&state="+state, nil)
+		req.AddCookie(testStateCookie(signedState))
+		rr := httptest.NewRecorder()
+
+		h := handler.Callback(authClient, store, callbackBaseURL, callbackCookieSec, ".example.com",
+			handler.WithOrg("myorg"),
+			handler.WithAllowedTeams([]string{"myorg/security"}),
+		)
+		h.ServeHTTP(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	})
 }
 
 func TestCallback_BadState(t *testing.T) {

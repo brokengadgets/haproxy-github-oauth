@@ -201,6 +201,18 @@ local function hmac_sha256_b64url(secret, data)
   return (b64:gsub("=+$", ""):gsub("+", "-"):gsub("/", "_"))
 end
 
+-- Constant-time string equality comparison to avoid timing side channels.
+local function const_eq(a, b)
+  if type(a) ~= "string" or type(b) ~= "string" or #a ~= #b then
+    return false
+  end
+  local diff = 0
+  for i = 1, #a do
+    diff = diff | (string.byte(a, i) ~ string.byte(b, i))
+  end
+  return diff == 0
+end
+
 -- Extract a named cookie value from a Cookie header string.
 local function get_cookie(header, name)
   if not header then return nil end
@@ -236,9 +248,16 @@ local function check_jwt(txn)
     return
   end
 
+  local header_json = b64url_decode(header_b64)
+  local header = header_json and json_decode(header_json)
+  if not header or header.alg ~= "HS256" then
+    if core then core.Debug("jwt_auth: unsupported or missing alg") end
+    return
+  end
+
   local signing_input = header_b64 .. "." .. payload_b64
   local expected_sig  = hmac_sha256_b64url(secret, signing_input)
-  if expected_sig ~= sig_b64 then
+  if not const_eq(expected_sig, sig_b64) then
     if core then core.Debug("jwt_auth: signature mismatch") end
     return
   end

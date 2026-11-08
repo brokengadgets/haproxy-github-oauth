@@ -1,31 +1,48 @@
 package handler
 
 import (
+	"net"
 	"net/http"
 	"strings"
 	"sync"
+	"time"
 
 	"golang.org/x/time/rate"
+)
+
+const (
+	limiterSweepThreshold = 1024
+	limiterIdleTTL        = 10 * time.Minute
 )
 
 // RateLimit wraps h with a per-IP token-bucket rate limiter.
 // r is the sustained request rate (requests/second); burst is the maximum burst size.
 func RateLimit(h http.Handler, r rate.Limit, burst int) http.Handler {
 	type entry struct {
-		limiter *rate.Limiter
+		limiter  *rate.Limiter
+		lastSeen time.Time
 	}
 	var mu sync.Mutex
 	limiters := make(map[string]*entry)
 
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		ip := clientIP(req)
+		now := time.Now()
 
 		mu.Lock()
+		if len(limiters) > limiterSweepThreshold {
+			for k, v := range limiters {
+				if now.Sub(v.lastSeen) > limiterIdleTTL {
+					delete(limiters, k)
+				}
+			}
+		}
 		e, ok := limiters[ip]
 		if !ok {
 			e = &entry{limiter: rate.NewLimiter(r, burst)}
 			limiters[ip] = e
 		}
+		e.lastSeen = now
 		lim := e.limiter
 		mu.Unlock()
 
@@ -45,10 +62,8 @@ func clientIP(r *http.Request) string {
 		}
 		return strings.TrimSpace(xff)
 	}
-	// Strip port from RemoteAddr.
-	addr := r.RemoteAddr
-	if idx := strings.LastIndexByte(addr, ':'); idx >= 0 {
-		return addr[:idx]
+	if host, _, err := net.SplitHostPort(r.RemoteAddr); err == nil {
+		return host
 	}
-	return addr
+	return r.RemoteAddr
 }

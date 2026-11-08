@@ -17,7 +17,38 @@ type orgInfo struct {
 	Login string `json:"login"`
 }
 
+type userResponse struct {
+	Login string `json:"login"`
+}
+
 var linkNextRe = regexp.MustCompile(`<([^>]+)>;\s*rel="next"`)
+
+// FetchUserLogin calls the GitHub /user endpoint to retrieve the authenticated
+// user's GitHub username.
+func (c *Client) FetchUserLogin(ctx context.Context, accessToken string) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.apiBaseURL+"/user", nil)
+	if err != nil {
+		return "", fmt.Errorf("build user request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	req.Header.Set("Accept", "application/vnd.github+json")
+
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("fetch user: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // best-effort close; error unactionable here
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("github user api returned status %d", resp.StatusCode)
+	}
+
+	var u userResponse
+	if err = json.NewDecoder(resp.Body).Decode(&u); err != nil {
+		return "", fmt.Errorf("decode user response: %w", err)
+	}
+	return u.Login, nil
+}
 
 // FetchTeams calls the GitHub API to retrieve all team memberships for the
 // authenticated user and returns them as "org/team-slug" strings.

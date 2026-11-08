@@ -45,7 +45,19 @@ func main() {
 	mux.Handle("GET /healthz", m.Wrap("/healthz", handler.Health()))
 	// 10 req/s per IP, burst 20 — guards against brute-force OAuth initiation.
 	mux.Handle("GET /login", m.Wrap("/login", handler.RateLimit(handler.Login(authClient, cfg.JWTSecret), rate.Limit(10), 20)))
-	mux.Handle("GET /callback", m.Wrap("/callback", handler.RateLimit(handler.Callback(authClient, sessionStore, cfg.BaseURL, cfg.JWTSecret, cfg.CookieDomain), rate.Limit(10), 20)))
+	mux.Handle("GET /callback", m.Wrap("/callback", handler.RateLimit(
+		handler.Callback(
+			authClient,
+			sessionStore,
+			cfg.BaseURL,
+			cfg.JWTSecret,
+			cfg.CookieDomain,
+			handler.WithOrg(cfg.GitHubOrg),
+			handler.WithAllowedTeams(cfg.AllowedTeams),
+		),
+		rate.Limit(10),
+		20,
+	)))
 	mux.Handle("GET /logout", m.Wrap("/logout", handler.Logout(cfg.CookieDomain)))
 	mux.Handle("GET /auth/verify", m.Wrap("/auth/verify", handler.Verify(sessionStore)))
 

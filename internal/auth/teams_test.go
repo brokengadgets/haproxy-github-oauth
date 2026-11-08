@@ -78,3 +78,18 @@ func TestFetchTeams_APIError(t *testing.T) {
 	_, err := client.FetchTeams(context.Background(), "bad-token")
 	require.Error(t, err)
 }
+
+func TestFetchUserLogin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/user", r.URL.Path)
+		assert.Equal(t, "Bearer test-token", r.Header.Get("Authorization"))
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = fmt.Fprint(w, `{"login":"octocat"}`)
+	}))
+	defer srv.Close()
+
+	client := auth.NewClientWithBaseURL("client-id", "client-secret", "https://auth.example.com", srv.URL)
+	login, err := client.FetchUserLogin(context.Background(), "test-token")
+	require.NoError(t, err)
+	assert.Equal(t, "octocat", login)
+}

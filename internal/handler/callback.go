@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -10,10 +11,40 @@ import (
 	"haproxy-github-oauth/internal/session"
 )
 
+// CallbackOption configures optional access-control checks in Callback.
+type CallbackOption func(*callbackConfig)
+
+type callbackConfig struct {
+	requiredOrg  string
+	allowedTeams []string
+}
+
+// WithOrg restricts login to users belonging to at least one team in org, and
+// filters issued JWT team claims to that organization.
+func WithOrg(org string) CallbackOption {
+	return func(cfg *callbackConfig) {
+		cfg.requiredOrg = org
+	}
+}
+
+// WithAllowedTeams restricts login to users belonging to at least one of the
+// specified "org/team-slug" entries.
+func WithAllowedTeams(teams []string) CallbackOption {
+	return func(cfg *callbackConfig) {
+		cfg.allowedTeams = teams
+	}
+}
+
 // Callback returns an http.Handler for GET /callback.
 // It validates the OAuth state, exchanges the code for a token, fetches team
-// memberships, issues a JWT session cookie, and redirects to the `rd` parameter.
-func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret, cookieDomain string) http.Handler {
+// memberships, enforces optional org/team allowlists, issues a JWT session
+// cookie, and redirects to the `rd` parameter.
+func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret, cookieDomain string, opts ...CallbackOption) http.Handler {
+	cfg := &callbackConfig{}
+	for _, opt := range opts {
+		opt(cfg)
+	}
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := validateState(r, cookieSecret); err != nil {
 			http.Error(w, "bad state: "+err.Error(), http.StatusBadRequest)
@@ -33,14 +64,26 @@ func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret, 
 			return
 		}
 
-		login := oauthToken.Extra("login")
-		loginStr, _ := login.(string)
+		filteredTeams, allowed := filterAndAuthorizeTeams(teams, cfg.requiredOrg, cfg.allowedTeams)
+		if !allowed {
+			http.Error(w, "forbidden: insufficient organization or team membership", http.StatusForbidden)
+			return
+		}
 
-		tokenStr, err := store.Issue(loginStr, teams)
+		loginStr, _ := oauthToken.Extra("login").(string)
+		if loginStr == "" {
+			if fetchedLogin, loginErr := client.FetchUserLogin(r.Context(), oauthToken.AccessToken); loginErr == nil {
+				loginStr = fetchedLogin
+			}
+		}
+
+		tokenStr, err := store.Issue(loginStr, filteredTeams)
 		if err != nil {
 			http.Error(w, "session issue failed", http.StatusInternalServerError)
 			return
 		}
+
+		clearTransientOAuthCookies(w)
 
 		http.SetCookie(w, &http.Cookie{
 			Name:     "_auth",
@@ -63,6 +106,56 @@ func Callback(client *auth.Client, store *session.Store, baseURL, cookieSecret, 
 		}
 		http.Redirect(w, r, rd, http.StatusFound) //nolint:gosec // rd is validated against BASE_URL host by validateRedirect
 	})
+}
+
+func clearTransientOAuthCookies(w http.ResponseWriter) {
+	for _, name := range []string{"oauth_state", "oauth_rd"} {
+		http.SetCookie(w, &http.Cookie{
+			Name:     name,
+			Value:    "",
+			Path:     "/",
+			MaxAge:   -1,
+			HttpOnly: true,
+			Secure:   true,
+			SameSite: http.SameSiteLaxMode,
+		})
+	}
+}
+
+func filterAndAuthorizeTeams(teams []string, requiredOrg string, allowedTeams []string) ([]string, bool) {
+	filtered := teams
+	if requiredOrg != "" {
+		prefix := strings.ToLower(requiredOrg) + "/"
+		filtered = make([]string, 0, len(teams))
+		for _, t := range teams {
+			if strings.HasPrefix(strings.ToLower(t), prefix) {
+				filtered = append(filtered, t)
+			}
+		}
+		if len(filtered) == 0 {
+			return nil, false
+		}
+	}
+
+	if len(allowedTeams) > 0 {
+		matched := false
+		for _, t := range filtered {
+			for _, allowed := range allowedTeams {
+				if strings.EqualFold(t, allowed) {
+					matched = true
+					break
+				}
+			}
+			if matched {
+				break
+			}
+		}
+		if !matched {
+			return nil, false
+		}
+	}
+
+	return filtered, true
 }
 
 func validateState(r *http.Request, cookieSecret string) error {
@@ -108,12 +201,25 @@ func validateRedirect(rd, baseURL string) (string, error) {
 // service to redirect back to any service on the same domain after login while
 // still blocking open-redirect attacks to external hosts.
 func isSiblingHost(host, baseHost string) bool {
+	if host == "" || baseHost == "" {
+		return false
+	}
 	if host == baseHost {
 		return true
+	}
+	if net.ParseIP(baseHost) != nil {
+		return false
 	}
 	dot := strings.Index(baseHost, ".")
 	if dot < 0 {
 		return false
 	}
-	return strings.HasSuffix(host, baseHost[dot:])
+	// Only strip the leading subdomain label (e.g. "auth" from "auth.example.com")
+	// when the remainder still contains at least one dot ("example.com").
+	// If baseHost is an apex domain ("example.com"), require a subdomain of baseHost.
+	parentSuffix := "." + baseHost
+	if strings.Contains(baseHost[dot+1:], ".") {
+		parentSuffix = baseHost[dot:]
+	}
+	return strings.HasSuffix(host, parentSuffix)
 }
